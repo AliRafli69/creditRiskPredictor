@@ -22,16 +22,13 @@ def load_artifacts():
         raise FileNotFoundError("File model 'xgb_credit_risk_model.pkl' tidak ditemukan.")
     model = joblib.load(model_path)
 
-    preprocessor = None
-    if pre_path and pre_path.exists():
-        preprocessor = joblib.load(pre_path)
+    preprocessor = joblib.load(pre_path) if pre_path and pre_path.exists() else None
 
     metadata = {}
     if meta_path and meta_path.exists():
         with open(meta_path, "rb") as f:
             metadata = pickle.load(f)
 
-    # deteksi apakah model adalah pipeline (punya 'steps' atau 'named_steps')
     is_pipeline = hasattr(model, "steps") or hasattr(model, "named_steps")
     return model, preprocessor, metadata, is_pipeline
 
@@ -54,15 +51,22 @@ st.sidebar.header("Input Data Peminjam")
 def user_input():
     return pd.DataFrame([{
         "person_age": st.sidebar.slider("Usia", 18, 100, 30),
-        "person_income": st.sidebar.number_input("Pendapatan Tahunan ($)", 1000, 1_000_000, 50_000),
+        "person_income": st.sidebar.number_input("Pendapatan Tahunan ($)", 1000, 1_000_000, 50_000, step=1000),
         "person_home_ownership": st.sidebar.selectbox("Kepemilikan Rumah", ["RENT","OWN","MORTGAGE","OTHER"]),
         "person_emp_length": st.sidebar.slider("Lama Bekerja (tahun)", 0, 60, 5),
-        "loan_intent": st.sidebar.selectbox("Tujuan Pinjaman",
-                      ["PERSONAL","EDUCATION","MEDICAL","VENTURE","HOMEIMPROVEMENT","DEBTCONSOLIDATION"]),
+        "loan_intent": st.sidebar.selectbox(
+            "Tujuan Pinjaman",
+            ["PERSONAL","EDUCATION","MEDICAL","VENTURE","HOMEIMPROVEMENT","DEBTCONSOLIDATION"]
+        ),
         "loan_grade": st.sidebar.selectbox("Grade Pinjaman", ["A","B","C","D","E","F","G"]),
-        "loan_amnt": st.sidebar.number_input("Jumlah Pinjaman ($)", 500, 100_000, 10_000),
-        "loan_int_rate": st.sidebar.slider("Suku Bunga Pinjaman (%)", 1.0, 40.0, 12.5, 0.1),
-        "loan_percent_income": st.sidebar.slider("Persentase Pinjaman dari Pendapatan", 0.0, 1.0, 0.2, 0.01),
+        "loan_amnt": st.sidebar.number_input("Jumlah Pinjaman ($)", 500, 100_000, 10_000, step=500),
+        # --- ubah slider jadi number_input ---
+        "loan_int_rate": st.sidebar.number_input(
+            "Suku Bunga Pinjaman (%)", min_value=1.00, max_value=40.00, value=12.50, step=0.01, format="%.2f"
+        ),
+        "loan_percent_income": st.sidebar.slider(
+            "Persentase Pinjaman dari Pendapatan", 0.00, 1.00, 0.20, step=0.01, format="%.2f"
+        ),
         "cb_person_default_on_file": st.sidebar.selectbox("Riwayat Default", ["Y","N"]),
         "cb_person_cred_hist_length": st.sidebar.slider("Lama Riwayat Kredit (tahun)", 0, 50, 5),
     }])
@@ -77,12 +81,11 @@ if st.button("Prediksi Risiko Kredit"):
         aligned = align_columns(input_df.copy(), metadata)
 
         if IS_PIPELINE:
-            # model sudah termasuk preprocessor → JANGAN transform manual
             proba = model.predict_proba(aligned)[0]
         else:
             if preprocessor is None:
                 raise RuntimeError("Preprocessor tidak ditemukan, tetapi model bukan pipeline.")
-            X_proc = preprocessor.transform(aligned)  # transform SEKALI
+            X_proc = preprocessor.transform(aligned)
             proba = model.predict_proba(X_proc)[0]
 
         pred = int(proba[1] >= 0.5)
@@ -96,23 +99,8 @@ if st.button("Prediksi Risiko Kredit"):
         st.write(f"Probabilitas Non-Default: {proba[0]:.2%}")
         st.write(f"Probabilitas Default: {proba[1]:.2%}")
 
-        st.subheader("Distribusi Probabilitas")
-        chart_df = pd.DataFrame(
-            {"Kategori": ["Non-Default","Default"], "Prob": [proba[0], proba[1]]}
-        ).set_index("Kategori")
-        st.bar_chart(chart_df)
-
-        # debug kecil (opsional): info tipe model
-        with st.expander("Debug info"):
-            st.write("Model is pipeline:", IS_PIPELINE)
-
     except Exception as e:
         st.error(f"Error dalam prediksi: {e}")
-        with st.expander("Trace hint"):
-            st.write("Jika pesan error menyebut ColumnTransformer expecting 11 features, "
-                     "itu berarti input mentah harus dikasih ke pipeline (hapus transform manual).")
 
-# ============== INFO ==============
 st.sidebar.header("Tentang Aplikasi")
-st.sidebar.info("App ini otomatis mendeteksi apakah file model adalah Pipeline atau estimator murni, "
-                "agar tidak terjadi double-preprocess.")
+st.sidebar.info("Input DataFrame mentah akan di-transform jika diperlukan, lalu diprediksi oleh model.")

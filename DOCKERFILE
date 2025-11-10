@@ -1,0 +1,33 @@
+# ===== base image =====
+FROM python:3.11-slim
+
+# Non-interactive apt
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1
+
+# Install runtime lib untuk xgboost (ringan)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgomp1 \
+ && rm -rf /var/lib/apt/lists/*
+
+# Set workdir
+WORKDIR /app
+
+# Salin requirements dulu (layer cache)
+COPY requirements.txt /app/requirements.txt
+
+# Install deps
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Salin sisa source
+COPY app.py /app/app.py
+COPY models /app/models
+
+# (opsional) set timezone biar log rapih
+ENV TZ=Asia/Jakarta
+
+# Expose port default Streamlit
+EXPOSE 8501
+
+# Jalankan streamlit
+ENTRYPOINT ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
